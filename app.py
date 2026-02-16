@@ -160,8 +160,10 @@ elif page == "🎯 Action Center":
                                 st.write(f"- {q}")
                             if st.button("Resolve", key=f"res_{item['id']}"):
                                 st.toast("Marked as actioned!")
-        else:
-            st.success("Inbox zero for selected priorities.")
+        except Exception as e:
+            st.error(f"Action Center Error: {e}")
+    else:
+        st.info("Select at least one priority to view actions.")
 
 # --- IMPORT PST ---
 elif page == "📥 Import PST":
