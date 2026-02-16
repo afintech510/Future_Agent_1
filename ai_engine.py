@@ -134,10 +134,12 @@ class AIEngine:
                     total_processed += processed_in_batch
                     if progress_callback:
                         progress_callback(total_processed, len(email_list))
+                    print(f"✅ Chunk processed: {processed_in_batch} items. Total: {total_processed}")
                 except Exception as e:
                     last_error = str(e)
                     print(f"❌ Batch failed: {e}")
                     
+        print(f"🏁 Enrichment cycle finished. Processed {total_processed} items. Errors: {last_error if last_error else 'None'}")
         return total_processed, last_error
 
     def _process_batch(self, emails):
@@ -158,6 +160,7 @@ class AIEngine:
         )
 
         try:
+            print(f"🤖 Calling OpenAI for batch of {len(emails)}...")
             completion = self.openai.beta.chat.completions.parse(
                 model="gpt-4o-mini",
                 messages=[
@@ -255,6 +258,7 @@ class AIEngine:
                     })
 
             # --- 3. Execute Batch DB Calls ---
+            print(f"💾 Saving batch results: {len(insights_batch)} insights, {len(parts_batch)} parts...")
             if insights_batch:
                 self.supabase.table("email_insights").upsert(insights_batch, on_conflict="email_id").execute()
             
@@ -264,8 +268,7 @@ class AIEngine:
             if tasks_batch:
                 self.supabase.table("tasks").insert(tasks_batch).execute()
 
-            # Company updates need individual or carefully structured upsert
-            # For simplicity, we'll only update if they weren't matched before
+            # Company updates
             for upd in company_updates:
                 try:
                     self.supabase.table("companies").update({
@@ -276,6 +279,7 @@ class AIEngine:
 
             if email_ids_processed:
                 self.supabase.table("emails").update({"processed_by_ai": True}).in_("id", email_ids_processed).execute()
+                print(f"✅ Marked {len(email_ids_processed)} emails as processed.")
 
             return len(email_ids_processed)
             
