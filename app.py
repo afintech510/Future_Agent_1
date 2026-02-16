@@ -137,13 +137,18 @@ elif page == "🎯 Action Center":
     priorities = st.multiselect("Filter Priority", ["P0", "P1", "P2"], default=["P0", "P1"])
     
     if priorities:
-        # Note: We select * from email_insights and join the emails table
-        resp = supabase.table("email_insights").select("*, emails!inner(*)").in_("priority", priorities).order("created_at", desc=True).execute()
-        if resp.data:
-            for item in resp.data:
-                # Access the joined email data correctly
-                email_data = item['emails']
-                with st.expander(f"[{item['priority']}] {email_data['subject']} - {email_data['from_name']}"):
+        try:
+            # We use an explicit join alias 'email' to avoid confusion and inner join for quality
+            resp = supabase.table("email_insights").select(
+                "*, email:emails!inner(*)"
+            ).in_("priority", priorities).order("created_at", desc=True).execute()
+            
+            if not resp.data:
+                st.info("No insights found for selected priorities. Try running AI Enrichment on unprocessed emails.")
+            else:
+                for item in resp.data:
+                    email_data = item['email']
+                    with st.expander(f"[{item['priority']}] {email_data['subject']} - {email_data['from_name']}"):
                     c1, c2 = st.columns([2, 1])
                     with c1:
                         st.markdown(f"**Intent:** `{item['intent']}`")
