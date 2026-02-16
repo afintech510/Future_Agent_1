@@ -51,6 +51,7 @@ def load_stats():
         return {"total": 0, "processed": 0, "urgent": 0, "parts": 0}
 
 # --- NAVIGATION ---
+stats = load_stats()
 page = st.sidebar.radio("Navigate", [
     "📊 Dashboard", 
     "🎯 Action Center", 
@@ -60,49 +61,33 @@ page = st.sidebar.radio("Navigate", [
 ])
 st.sidebar.divider()
 
+# --- SIDEBAR AI ENRICHMENT ---
+unprocessed_count = stats["total"] - stats["processed"]
+if unprocessed_count > 0:
+    st.sidebar.markdown(f"**{unprocessed_count}** emails pending.")
+    if st.sidebar.button("🚀 Trigger Mega-Enrich", help="Runs in background. You can switch pages!"):
+        import threading
+        from streamlit.runtime.scriptrunner import add_script_run_ctx
+        
+        def run_enrichment():
+            emails = ai_engine.get_unprocessed_emails(limit=150)
+            ai_engine.process_emails(emails)
+            st.toast("Background Enrichment Complete!")
+
+        thread = threading.Thread(target=run_enrichment)
+        add_script_run_ctx(thread)
+        thread.start()
+        st.sidebar.info("🤖 Processing in background...")
+else:
+    st.sidebar.success("✅ Inbox Analyzed")
+
+st.sidebar.divider()
+
 # --- DASHBOARD ---
 if page == "📊 Dashboard":
     st.title("💎 Display Intel Dashboard")
     
-    col_hdr, col_btn = st.columns([4, 1])
-    stats = load_stats()
-    unprocessed_count = stats["total"] - stats["processed"]
-
-    with col_btn:
-        if unprocessed_count > 0:
-            if st.button("🚀 Trigger Mega-Batch Enrichment (150 Items)"):
-                with st.status("Processing parallel batches...", expanded=True) as status:
-                    emails = ai_engine.get_unprocessed_emails(limit=150)
-                    if not emails:
-                        st.info("No new emails to process.")
-                        status.update(label="Complete", state="complete")
-                    else:
-                        st.write(f"Feeding {len(emails)} emails into 5 parallel streams...")
-                        bar = st.progress(0)
-                        
-                        def update_progress(current, total):
-                            progress = min(current / total, 1.0)
-                            bar.progress(progress)
-                        
-                        count, error = ai_engine.process_emails(emails, progress_callback=update_progress)
-                        
-                        bar.progress(100)
-                        if error:
-                            if "insufficient_quota" in error.lower():
-                                st.error("🚫 **OpenAI Quota Exhausted**: Please check your billing/balance at platform.openai.com.")
-                            else:
-                                st.error(f"❌ AI Error: {error}")
-                        st.success(f"Successfully processed {count} emails in parallel!")
-                        status.update(label=f"Done! {count} emails enriched.", state="complete")
-                        st.rerun()
-        else:
-            st.button("🤖 Enrichment Complete", disabled=True)
-
-    if unprocessed_count > 0:
-        progress = stats["processed"] / stats["total"] if stats["total"] > 0 else 0
-        st.write(f"**Enrichment Progress:** {stats['processed']} / {stats['total']} ({unprocessed_count} left)")
-        st.progress(progress)
-    
+    # Top Metrics
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Emails", stats["total"])
     c2.metric("AI Analyzed", stats["processed"])

@@ -133,8 +133,14 @@ class AIEngine:
         total_processed = 0
         last_error = None
         
+        import time
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_chunk = {executor.submit(self._process_batch, chunk): chunk for chunk in chunks}
+            future_to_chunk = {}
+            for i, chunk in enumerate(chunks):
+                future = executor.submit(self._process_batch, chunk)
+                future_to_chunk[future] = chunk
+                if i < len(chunks) - 1:
+                    time.sleep(5) # Staggered submission as requested
             
             for future in concurrent.futures.as_completed(future_to_chunk):
                 try:
