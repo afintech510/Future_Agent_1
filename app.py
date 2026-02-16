@@ -138,6 +138,15 @@ elif page == "🎯 Action Center":
     st.title("🎯 Action Center")
     priorities = st.multiselect("Filter Priority", ["P0", "P1", "P2"], default=["P0", "P1"])
     
+    if priorities:
+        try:
+            resp = supabase.table("email_insights").select(
+                "*, email:emails!inner(*)"
+            ).in_("priority", priorities).order("created_at", desc=True).execute()
+
+            if not resp.data:
+                st.info("No insights found for selected priorities. Try running AI Enrichment on unprocessed emails.")
+            else:
                 import re
                 def get_part_numbers(text):
                     # Robust pattern for technical part numbers
