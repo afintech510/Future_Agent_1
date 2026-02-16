@@ -116,9 +116,37 @@ class AIEngine:
                     
         return total_processed, last_error
 
+    def process_emails(self, email_list, progress_callback=None):
+        """Process emails in parallel batches for maximum throughput."""
+        if not email_list:
+            return 0, None
+            
+        import concurrent.futures
+        batch_size = 30
+        max_workers = 5
+        
+        chunks = [email_list[i:i + batch_size] for i in range(0, len(email_list), batch_size)]
+        total_processed = 0
+        last_error = None
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_chunk = {executor.submit(self._process_batch, chunk): chunk for chunk in chunks}
+            
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                try:
+                    processed_in_batch = future.result()
+                    total_processed += processed_in_batch
+                    if progress_callback:
+                        progress_callback(total_processed, len(email_list))
+                except Exception as e:
+                    last_error = str(e)
+                    print(f"❌ Batch failed: {e}")
+                    
+        return total_processed, last_error
+
     def _process_batch(self, emails):
         """Process a single batch of 30 emails."""
-        from prompts import BATCH_USER_PROMPT_TEMPLATE
+        from prompts import BATCH_USER_PROMPT_TEMPLATE, BATCH_SYSTEM_PROMPT
         
         # 1. Format Batch Prompt
         emails_block = ""
@@ -126,7 +154,7 @@ class AIEngine:
             emails_block += f"\n--- ITEM {i} ---\n"
             emails_block += f"FROM: {email.get('from_name')} <{email.get('sender_email')}>\n"
             emails_block += f"SUBJECT: {email['subject']}\n"
-            emails_block += f"BODY: {email['body'][:2000]}\n" # Truncate body for batch fits
+            emails_block += f"BODY: {email['body'][:2000]}\n"
 
         batch_prompt = BATCH_USER_PROMPT_TEMPLATE.format(
             count=len(emails),
@@ -137,7 +165,7 @@ class AIEngine:
             completion = self.openai.beta.chat.completions.parse(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": BATCH_SYSTEM_PROMPT},
                     {"role": "user", "content": batch_prompt}
                 ],
                 response_format=BatchEmailAnalysis,

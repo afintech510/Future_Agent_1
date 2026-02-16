@@ -80,8 +80,11 @@ if page == "📊 Dashboard":
                         st.write(f"Feeding {len(emails)} emails into 5 parallel streams...")
                         bar = st.progress(0)
                         
-                        # In parallel mode, we just wait for the engine to finish the total count
-                        count, error = ai_engine.process_emails(emails)
+                        def update_progress(current, total):
+                            progress = min(current / total, 1.0)
+                            bar.progress(progress)
+                        
+                        count, error = ai_engine.process_emails(emails, progress_callback=update_progress)
                         
                         bar.progress(100)
                         if error:

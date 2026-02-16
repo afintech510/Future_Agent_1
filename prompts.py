@@ -27,6 +27,21 @@ Depending on the metadata provided, you operate in one of two modes:
 Return JSON strictly following the provided Pydantic schema.
 """
 
+BATCH_SYSTEM_PROMPT = """
+You are an Email Data Extractor named Adam.
+I will provide a list of up to 30 email snippets.
+For EACH item, return a JSON object.
+Output MUST be a valid JSON Array containing exactly the same number of objects as input items.
+
+For each item, perform your standard triage:
+1. SUMMARY: Dense, professional one-liner.
+2. INTENT: One-word category.
+3. TRIAGE: P0/P1/P2.
+4. HARVEST: Detect commitments if outgoing.
+
+Constraint: Do not include conversational filler. Return ONLY the JSON Array.
+"""
+
 USER_PROMPT_TEMPLATE = """
 --- EMAIL METADATA ---
 FROM: {sender_name} <{sender_email}>
