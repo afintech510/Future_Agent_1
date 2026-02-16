@@ -1,7 +1,7 @@
 import os
 import json
 from typing import List, Optional, Dict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from openai import OpenAI
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -10,39 +10,43 @@ from prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 load_dotenv()
 
 # --- STRUCTURED OUTPUT MODELS ---
+# OpenAI requires all fields in 'required' array and no extra properties.
 
-class QuoteFields(BaseModel):
-    quantity: Optional[str] = Field(None, description="e.g. 10k/year")
-    timeline: Optional[str] = Field(None, description="e.g. MP Q3 2025")
-    delivery_location: Optional[str] = Field(None, description="e.g. HK")
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
 
-class QuoteAnalysis(BaseModel):
+class QuoteFields(StrictBaseModel):
+    quantity: str = Field(..., description="e.g. 10k/year. Use 'Not specified' if missing.")
+    timeline: str = Field(..., description="e.g. MP Q3 2025. Use 'Not specified' if missing.")
+    delivery_location: str = Field(..., description="e.g. HK. Use 'Not specified' if missing.")
+
+class QuoteAnalysis(StrictBaseModel):
     is_quote_request: bool
     extracted_fields: QuoteFields
 
-class PartInfo(BaseModel):
+class PartInfo(StrictBaseModel):
     pn: str = Field(..., description="The part number found")
     context: str = Field(..., description="Context or reasoning for this part")
-    snippet: Optional[str] = Field(None, description="Exact quote from the email")
+    snippet: str = Field(..., description="Exact quote from the email")
 
-class PartNumbers(BaseModel):
-    customer_provided: List[PartInfo] = []
-    recommended_by_you: List[PartInfo] = []
+class PartNumbers(StrictBaseModel):
+    customer_provided: List[PartInfo]
+    recommended_by_you: List[PartInfo]
 
-class TechnicalAnalysis(BaseModel):
-    application: Optional[str] = Field(None, description="The customer's end application")
-    specs_detected: Dict[str, str] = Field(default_factory=dict, description="Technical specs like brightness, interface")
-    risks: List[str] = []
+class TechnicalAnalysis(StrictBaseModel):
+    application: str = Field(..., description="The customer's end application. Use 'Unknown' if not mentioned.")
+    specs_detected: Dict[str, str] = Field(..., description="Technical specs like brightness, interface. Use empty dict {} if none.")
+    risks: List[str]
 
-class ActionPlan(BaseModel):
-    suggested_actions: List[str] = []
-    missing_info_questions: List[str] = []
+class ActionPlan(StrictBaseModel):
+    suggested_actions: List[str]
+    missing_info_questions: List[str]
 
-class EmailAnalysisSchema(BaseModel):
+class EmailAnalysisSchema(StrictBaseModel):
     summary: str
     intent: str = Field(..., description="quote_request | technical_support | order_status | intro | spam")
     priority: str = Field(..., description="P0 | P1 | P2")
-    priority_reason: str = Field(..., description="Why this priority was chosen based on Adam's identity")
+    priority_reason: str = Field(..., description="Why this priority was chosen based on Adam's triage rules")
     quote_analysis: QuoteAnalysis
     part_numbers: PartNumbers
     technical_analysis: TechnicalAnalysis
@@ -127,7 +131,7 @@ class AIEngine:
             "missing_info_questions": ai_data.action_plan.missing_info_questions,
             "draft_reply": ai_data.draft_reply,
             "raw_ai_output": ai_data.model_dump(),
-            "model_metadata": {"model": "gpt-4o-mini", "version": "v2-structured"}
+            "model_metadata": {"model": "gpt-4o-mini", "version": "v2.1-strict"}
         }
         
         # Upsert Insights
