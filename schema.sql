@@ -84,6 +84,20 @@ CREATE TABLE IF NOT EXISTS parts_recommended (
     UNIQUE(email_id, part_number, source_type)
 );
 
+-- Tasks table: for follow-ups and commitments
+CREATE TABLE IF NOT EXISTS tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email_id UUID REFERENCES emails(id),
+    company_name TEXT,
+    fsp_name TEXT,
+    task_type TEXT, -- 'follow_up' or 'waiting_on_client'
+    description TEXT,
+    due_date DATE,
+    status TEXT DEFAULT 'pending', -- 'pending', 'completed'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Opportunities table
 CREATE TABLE IF NOT EXISTS opportunities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

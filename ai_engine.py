@@ -42,13 +42,18 @@ class TechnicalAnalysis(StrictBaseModel):
     specs_detected: List[TechnicalSpec] = Field(..., description="List of technical specs found.")
     risks: List[str]
 
-class ActionPlan(StrictBaseModel):
-    suggested_actions: List[str]
-    missing_info_questions: List[str]
+class Commitment(StrictBaseModel):
+    task_type: str = Field(..., description="follow_up | waiting_on_client")
+    description: str = Field(..., description="Summarized task for Adam")
+    due_date_offset_days: int = Field(..., description="How many days from now should this be due?")
+
+class CommitmentAnalysis(StrictBaseModel):
+    detected: bool
+    commitments: List[Commitment]
 
 class EmailAnalysisSchema(StrictBaseModel):
     summary: str
-    intent: str = Field(..., description="quote_request | technical_support | order_status | intro | spam")
+    intent: str = Field(..., description="quote_request | technical_support | order_status | intro | spam | update")
     priority: str = Field(..., description="P0 | P1 | P2")
     priority_reason: str = Field(..., description="Why this priority was chosen based on Adam's triage rules")
     quote_analysis: QuoteAnalysis
@@ -56,6 +61,7 @@ class EmailAnalysisSchema(StrictBaseModel):
     technical_analysis: TechnicalAnalysis
     draft_reply: str
     action_plan: ActionPlan
+    commitment_analysis: CommitmentAnalysis # Added for Harvest mode
 
 # --- AI ENGINE ---
 
@@ -121,6 +127,9 @@ class AIEngine:
 
         ai_data = completion.choices[0].message.parsed
         
+        # 1. Determine if Outgoing (Adam is Sender)
+        is_outgoing = "adam.larkin" in email.get('sender_email', '').lower()
+        
         # 1. Prepare Insights Data
         specs_list = [f"- {s.label}: {s.value}" for s in ai_data.technical_analysis.specs_detected]
         tech_summary = f"Application: {ai_data.technical_analysis.application}\n" + "\n".join(specs_list)
@@ -136,9 +145,9 @@ class AIEngine:
             "technical_risks": ai_data.technical_analysis.risks,
             "suggested_actions": ai_data.action_plan.suggested_actions,
             "missing_info_questions": ai_data.action_plan.missing_info_questions,
-            "draft_reply": ai_data.draft_reply,
+            "draft_reply": ai_data.draft_reply if not is_outgoing else "", # Clear draft if outgoing
             "raw_ai_output": ai_data.model_dump(),
-            "model_metadata": {"model": "gpt-4o-mini", "version": "v2.3-compat"}
+            "model_metadata": {"model": "gpt-4o-mini", "version": "v2.4-harvest"}
         }
         
         # Upsert Insights
@@ -146,7 +155,35 @@ class AIEngine:
             insights_data, on_conflict="email_id"
         ).execute()
 
-        # 2. Prepare Recommended Parts
+        # 2. IF OUTGOING: Create Tasks from Commitments
+        if is_outgoing and ai_data.commitment_analysis.detected:
+            from datetime import datetime, timedelta
+            tasks_batch = []
+            
+            # Simple Entity Extraction: Get domain from CC or To
+            domain = "Unknown"
+            recipients = email.get('recipient_emails', []) or []
+            if recipients:
+                first_email = recipients[0]
+                if "@" in first_email:
+                    domain = first_email.split("@")[-1].split(".")[0].capitalize()
+
+            for comm in ai_data.commitment_analysis.commitments:
+                due_date = (datetime.now() + timedelta(days=comm.due_date_offset_days)).strftime("%Y-%m-%d")
+                tasks_batch.append({
+                    "email_id": email['id'],
+                    "company_name": domain,
+                    "task_type": comm.task_type,
+                    "description": comm.description,
+                    "due_date": due_date,
+                    "status": "pending"
+                })
+            
+            if tasks_batch:
+                self.supabase.table("tasks").insert(tasks_batch).execute()
+                print(f"📌 Created {len(tasks_batch)} tasks for outgoing email.")
+
+        # 3. Prepare Recommended Parts
         parts_batch = []
         def add_parts(part_list, source_type):
             for p in part_list:
@@ -170,7 +207,7 @@ class AIEngine:
                 ignore_duplicates=True
             ).execute()
 
-        # 3. Mark as Processed
+        # 4. Mark as Processed
         self.supabase.table("emails").update({"processed_by_ai": True}).eq("id", email['id']).execute()
         
         print(f"✅ Successfully processed {email['id']}")
