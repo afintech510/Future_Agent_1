@@ -122,7 +122,8 @@ class AIEngine:
         ai_data = completion.choices[0].message.parsed
         
         # 1. Prepare Insights Data
-        specs_list = [f"{s.label}: {s.value}" for s in ai_data.technical_analysis.specs_detected]
+        specs_list = [f"- {s.label}: {s.value}" for s in ai_data.technical_analysis.specs_detected]
+        tech_summary = f"Application: {ai_data.technical_analysis.application}\n" + "\n".join(specs_list)
         
         insights_data = {
             "email_id": email['id'],
@@ -131,14 +132,13 @@ class AIEngine:
             "priority": ai_data.priority,
             "quote_intent": ai_data.quote_analysis.is_quote_request,
             "quote_fields": ai_data.quote_analysis.extracted_fields.model_dump(),
-            "technical_analysis": ai_data.technical_analysis.application,
-            "technical_specs": specs_list, # Map to technical_specs list in DB
+            "technical_analysis": tech_summary,
             "technical_risks": ai_data.technical_analysis.risks,
             "suggested_actions": ai_data.action_plan.suggested_actions,
             "missing_info_questions": ai_data.action_plan.missing_info_questions,
             "draft_reply": ai_data.draft_reply,
             "raw_ai_output": ai_data.model_dump(),
-            "model_metadata": {"model": "gpt-4o-mini", "version": "v2.2-strict"}
+            "model_metadata": {"model": "gpt-4o-mini", "version": "v2.3-compat"}
         }
         
         # Upsert Insights

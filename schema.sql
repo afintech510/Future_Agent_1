@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS email_insights (
     quote_intent BOOLEAN DEFAULT FALSE,
     quote_fields JSONB, -- quantity, timeline, location
     technical_analysis TEXT,
+    technical_specs TEXT[], -- Added
     technical_risks TEXT[],
     suggested_actions TEXT[],
     missing_info_questions TEXT[],
