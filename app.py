@@ -149,17 +149,17 @@ elif page == "🎯 Action Center":
                 for item in resp.data:
                     email_data = item['email']
                     with st.expander(f"[{item['priority']}] {email_data['subject']} - {email_data['from_name']}"):
-                    c1, c2 = st.columns([2, 1])
-                    with c1:
-                        st.markdown(f"**Intent:** `{item['intent']}`")
-                        st.write(f"**Analysis:** {item['summary']}")
-                        st.write(f"**Draft:**\n{item['draft_reply']}")
-                    with c2:
-                        st.write("**Missing Info:**")
-                        for q in item['missing_info_questions']:
-                            st.write(f"- {q}")
-                        if st.button("Resolve", key=f"res_{item['id']}"):
-                            st.toast("Marked as actioned!")
+                        c1, c2 = st.columns([2, 1])
+                        with c1:
+                            st.markdown(f"**Intent:** `{item['intent']}`")
+                            st.write(f"**Analysis:** {item['summary']}")
+                            st.write(f"**Draft:**\n{item['draft_reply']}")
+                        with c2:
+                            st.write("**Missing Info:**")
+                            for q in item['missing_info_questions']:
+                                st.write(f"- {q}")
+                            if st.button("Resolve", key=f"res_{item['id']}"):
+                                st.toast("Marked as actioned!")
         else:
             st.success("Inbox zero for selected priorities.")
 
