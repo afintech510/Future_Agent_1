@@ -87,7 +87,8 @@ is_running = any(t.name == "EnrichmentThread" for t in threading.enumerate())
 
 if is_running:
     st.sidebar.info("🤖 Adam is currently analyzing...")
-    if st.sidebar.button("🔄 Check Status"):
+    st.sidebar.progress(0, text="AI is crunching emails...")
+    if st.sidebar.button("🔄 Check Status / Refresh"):
         st.rerun()
 else:
     btn_label = "🚀 Trigger Mega-Enrich" if unprocessed_count > 0 else "✅ Data Up to Date"
@@ -107,8 +108,11 @@ else:
         st.sidebar.info("🤖 Processing started...")
         st.rerun()
 
+st.sidebar.caption(f"📊 Status: {stats['processed']} / {stats['total']} analyzed")
 if unprocessed_count > 0:
-    st.sidebar.caption(f"**{unprocessed_count}** emails pending analysis.")
+    st.sidebar.warning(f"⚠️ {unprocessed_count} emails pending enrichment.")
+else:
+    st.sidebar.success("✅ All emails enriched!")
 
 st.sidebar.divider()
 
