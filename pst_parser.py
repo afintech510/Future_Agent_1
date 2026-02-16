@@ -43,6 +43,11 @@ def generate_dedupe_hash(sender, recipients_str, subject, sent_time_iso, body_te
     raw = f"{sender}|{recipients_str}|{subject}|{sent_time_iso}|{body_snippet}"
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
+def extract_domain(email):
+    if not email or "@" not in email:
+        return None
+    return email.split("@")[-1].lower()
+
 def generate_thread_id(subject):
     """
     Groups replies like "Re: Project" and "Fwd: Project" into one ID.
@@ -140,6 +145,56 @@ class PSTParser:
         )
         
         thread_id = generate_thread_id(subject)
+        
+        # --- 4.5 DISTRIBUTOR LOGIC: Entity Linking ---
+        related_company_id = None
+        if self.supabase:
+            # Gather all participants
+            all_participants = list(set([sender_email] + to_emails + cc_emails))
+            external_emails = [e for e in all_participants if e and not e.endswith("@futureelectronics.com")]
+            
+            if external_emails:
+                # We'll use the primary external contact's domain for the company
+                primary_external = external_emails[0]
+                domain = extract_domain(primary_external)
+                
+                if domain:
+                    # 1. Ensure Company Exists
+                    try:
+                        # Try to find existing company by domain
+                        comp_resp = self.supabase.table("companies").select("id").eq("domain", domain).execute()
+                        if comp_resp.data:
+                            related_company_id = comp_resp.data[0]['id']
+                        else:
+                            # Create new "Unclassified" company
+                            comp_name = domain.split(".")[0].capitalize()
+                            new_comp = self.supabase.table("companies").insert({
+                                "name": comp_name,
+                                "domain": domain,
+                                "type": "Unclassified"
+                            }).execute()
+                            if new_comp.data:
+                                related_company_id = new_comp.data[0]['id']
+                        
+                        # 2. Ensure Contact Exists
+                        if related_company_id:
+                            # Logic for sender if external
+                            if sender_email and sender_email in external_emails:
+                                self.supabase.table("contacts").upsert({
+                                    "email": sender_email,
+                                    "company_id": related_company_id,
+                                    "full_name": sender_name
+                                }, on_conflict="email").execute()
+                            
+                            # 3. Ensure Thread Exists/Updated
+                            self.supabase.table("email_threads").upsert({
+                                "id": thread_id,
+                                "subject": subject,
+                                "related_company_id": related_company_id,
+                                "last_message_at": sent_at
+                            }, on_conflict="id").execute()
+                    except Exception as entity_e:
+                        print(f"⚠️ Entity linking error: {entity_e}")
 
         # --- 5. ATTACHMENTS ---
         attachments_meta = []
@@ -184,7 +239,8 @@ class PSTParser:
             "folder_path": folder_path,
             "attachments": attachments_meta,
             "transport_headers": headers,
-            "processed_by_ai": False
+            "processed_by_ai": False,
+            "related_company_id": related_company_id
         }
         
         self.batch.append(email_record)

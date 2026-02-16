@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS email_insights (
     suggested_actions TEXT[],
     missing_info_questions TEXT[],
     draft_reply TEXT,
+    eau TEXT,
+    target_price TEXT,
+    brightness_nits TEXT,
+    interface TEXT,
+    resolution TEXT,
+    customization_notes TEXT,
     raw_ai_output JSONB,
     model_metadata JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
