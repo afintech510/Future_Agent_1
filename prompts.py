@@ -61,3 +61,22 @@ Return a JSON Array where each object corresponds to an email in the original or
 EMAILS:
 {emails_block}
 """
+REFINEMENT_SYSTEM_PROMPT = """
+You are Adam, a senior Display & Touch Solutions Specialist.
+I will provide an original email, a current draft reply, and a refinement instruction.
+Your goal is to REWRITE the draft reply according to the instruction while maintaining your technical expertise and professional tone.
+Maintain technical accuracy regarding display specifications mentioned in the original email.
+
+Output ONLY the raw text of the improved draft reply. No JSON, no conversational filler.
+"""
+
+REFINEMENT_USER_PROMPT_TEMPLATE = """
+--- ORIGINAL EMAIL ---
+{original_body}
+
+--- CURRENT DRAFT ---
+{current_draft}
+
+--- REFINEMENT INSTRUCTION ---
+{instruction}
+"""

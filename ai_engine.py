@@ -269,3 +269,23 @@ if __name__ == "__main__":
     engine = AIEngine()
     processed_count, error = engine.process_emails(engine.get_unprocessed_emails(limit=30))
     print(f"Cycle complete. Processed {processed_count} emails. Error: {error}")
+
+    def refine_draft(self, original_body, current_draft, instruction):
+        """Refine an existing draft based on user instructions."""
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": prompts.REFINEMENT_SYSTEM_PROMPT},
+                    {"role": "content", "content": prompts.REFINEMENT_USER_PROMPT_TEMPLATE.format(
+                        original_body=original_body,
+                        current_draft=current_draft,
+                        instruction=instruction
+                    )}
+                ],
+                temperature=0.7
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"❌ Refinement failed: {e}")
+            return current_draft

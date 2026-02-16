@@ -138,30 +138,88 @@ elif page == "🎯 Action Center":
     st.title("🎯 Action Center")
     priorities = st.multiselect("Filter Priority", ["P0", "P1", "P2"], default=["P0", "P1"])
     
-    if priorities:
-        try:
-            # We use an explicit join alias 'email' to avoid confusion and inner join for quality
-            resp = supabase.table("email_insights").select(
-                "*, email:emails!inner(*)"
-            ).in_("priority", priorities).order("created_at", desc=True).execute()
-            
-            if not resp.data:
-                st.info("No insights found for selected priorities. Try running AI Enrichment on unprocessed emails.")
-            else:
+                import re
+                def get_part_numbers(text):
+                    # Robust pattern for technical part numbers
+                    pattern = r'[A-Z0-9\-]{6,}'
+                    found = re.findall(pattern, text)
+                    return sorted(list(set(found)))
+
                 for item in resp.data:
                     email_data = item['email']
-                    with st.expander(f"[{item['priority']}] {email_data['subject']} - {email_data['from_name']}"):
+                    p_color = {"P0": "🔴", "P1": "🟡", "P2": "⚪"}.get(item['priority'], "")
+                    
+                    with st.expander(f"{p_color} {email_data['subject']} - {email_data['from_name']}"):
+                        # Top Metrics & Part Badges
+                        col_meta, col_copy = st.columns([4, 1])
+                        with col_meta:
+                            st.markdown(f"**Intent:** :green[`{item['intent']}`]")
+                            
+                            # Part Number Badges
+                            p_nums = get_part_numbers(item['summary'] + " " + (email_data['body'] or ""))
+                            if p_nums:
+                                badge_cols = st.columns(len(p_nums) + 1)
+                                with badge_cols[0]:
+                                    st.caption("Parts:")
+                                for idx, p in enumerate(p_nums):
+                                    if badge_cols[idx+1].button(p, key=f"cp_{item['id']}_{p}", help="Click to copy"):
+                                        st.write(f"Copying {p}...") # Fallback message
+                                        # Injecting small JS to copy to clipboard
+                                        st.components.v1.html(f"<script>navigator.clipboard.writeText('{p}');</script>", height=0)
+                                        st.toast(f"Copied: {p}")
+                        
+                        with col_copy:
+                            if st.button("📋 Copy Subject", key=f"sub_{item['id']}"):
+                                st.components.v1.html(f"<script>navigator.clipboard.writeText('{email_data['subject']}');</script>", height=0)
+                                st.toast("Subject line copied!")
+
+                        st.divider()
+
+                        # Analysis and Draft
                         c1, c2 = st.columns([2, 1])
                         with c1:
-                            st.markdown(f"**Intent:** `{item['intent']}`")
-                            st.write(f"**Analysis:** {item['summary']}")
-                            st.write(f"**Draft:**\n{item['draft_reply']}")
+                            st.markdown(f"**Analysis:** {item['summary']}")
+                            
+                            # Draft Block with Copy
+                            st.markdown("### 📝 Suggested Reply")
+                            d_col1, d_col2 = st.columns([5, 1])
+                            with d_col1:
+                                current_draft = st.text_area("Current Draft", item['draft_reply'], height=200, key=f"draft_view_{item['id']}")
+                            with d_col2:
+                                if st.button("📋 Copy", key=f"copy_d_{item['id']}", help="Copy response to clipboard"):
+                                    st.components.v1.html(f"<script>navigator.clipboard.writeText(`{current_draft}`);</script>", height=0)
+                                    st.toast("Draft copied to clipboard!")
+                            
+                            # AI Refinement
+                            st.divider()
+                            ref_col1, ref_col2 = st.columns([4, 1])
+                            refine_input = ref_col1.text_input("Refine this response...", placeholder="e.g. Make it more formal, ask for lead time...", key=f"ref_in_{item['id']}")
+                            if ref_col2.button("✨ Refine", key=f"btn_ref_{item['id']}"):
+                                if refine_input:
+                                    with st.spinner("Adam is rewriting..."):
+                                        new_draft = ai_engine.refine_draft(email_data['body'], current_draft, refine_input)
+                                        # Update DB with new draft
+                                        supabase.table("email_insights").update({"draft_reply": new_draft}).eq("id", item['id']).execute()
+                                        st.rerun()
+                                else:
+                                    st.warning("Enter an instruction first.")
+
                         with c2:
-                            st.write("**Missing Info:**")
+                            st.write("**Missing Info / Questions:**")
                             for q in item['missing_info_questions']:
                                 st.write(f"- {q}")
-                            if st.button("Resolve", key=f"res_{item['id']}"):
-                                st.toast("Marked as actioned!")
+                            
+                            st.divider()
+                            if st.button("✅ Mark as Actioned", key=f"res_{item['id']}"):
+                                st.toast("Insight resolved!")
+
+                        # Audit View: Original Message
+                        with st.expander("📄 Original Message Context"):
+                            st.markdown(f"""
+                            <div style="background-color: #1f2937; padding: 10px; border-radius: 5px; height: 192px; overflow-y: scroll; border: 1px solid #374151; color: #d1d5db; font-family: monospace; font-size: 0.85rem;">
+                                {email_data['body'].replace('\n', '<br>')}
+                            </div>
+                            """, unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Action Center Error: {e}")
     else:
