@@ -35,17 +35,18 @@ ai_engine = AIEngine()
 # --- UTILS ---
 def load_stats():
     try:
-        # Efficient counts using head=True
-        emails = supabase.table("emails").select("id", count="exact", head=True).execute()
-        insights = supabase.table("email_insights").select("id", count="exact", head=True).execute()
-        urgent = supabase.table("email_insights").select("id", count="exact", head=True).eq("priority", "P0").execute()
-        parts = supabase.table("parts_recommended").select("id", count="exact", head=True).execute()
+        # Source of truth for processing status
+        total = supabase.table("emails").select("id", count="exact", head=True).execute().count
+        processed = supabase.table("emails").select("id", count="exact", head=True).eq("processed_by_ai", True).execute().count
+        urgent = supabase.table("email_insights").select("id", count="exact", head=True).eq("priority", "P0").execute().count
+        parts = supabase.table("parts_recommended").select("id", count="exact", head=True).execute().count
         
         return {
-            "total": emails.count,
-            "processed": insights.count,
-            "urgent": urgent.count,
-            "parts": parts.count
+            "total": total or 0,
+            "processed": processed or 0,
+            "pending": (total or 0) - (processed or 0),
+            "urgent": urgent or 0,
+            "parts": parts or 0
         }
     except Exception as e:
         print(f"⚠️ Stats load error: {e}")
@@ -62,13 +63,14 @@ page = st.sidebar.radio("Navigate", [
     "⚙️ Settings"
 ])
 st.sidebar.divider()
-if st.sidebar.button("🔄 Refresh Data"):
+if st.sidebar.button("🔄 Refresh Application Data"):
     st.cache_resource.clear()
+    st.toast("Syncing with database...")
     st.rerun()
 
 # --- SIDEBAR AI ENRICHMENT ---
 st.sidebar.markdown(f"### 🤖 AI Agent Status")
-unprocessed_count = stats["total"] - stats["processed"]
+unprocessed_count = stats["pending"]
 
 import threading
 # Robust scriptrunner import
@@ -167,9 +169,10 @@ elif page == "🎯 Action Center":
     
     if priorities:
         try:
+            # Fix ambiguity by specifying which FK to use for companies join
             resp = supabase.table("email_insights").select(
-                "*, email:emails!inner(*, parts:parts_recommended(part_number), company:companies(id, name, type))"
-            ).in_("priority", priorities).order("created_at", desc=True).execute()
+                "*, email:emails!inner(*, parts:parts_recommended(part_number), company:companies!emails_related_company_id_fkey(id, name, type))"
+            ).in_("priority", priorities).order("priority", asc=True).order("created_at", desc=True).execute()
 
             if not resp.data:
                 st.info("No insights found for selected priorities. Try running AI Enrichment on unprocessed emails.")
