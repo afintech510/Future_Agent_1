@@ -217,16 +217,20 @@ class AIEngine:
                 # B. Parts
                 def add_parts(part_list, source_type):
                     for p in part_list:
-                        if len(p.pn.strip()) >= 4:
+                        pn_clean = p.pn.strip()
+                        if len(pn_clean) >= 2:
+                            print(f"🧩 Detected Part [{source_type}]: {pn_clean}")
                             parts_batch.append({
                                 "email_id": email['id'],
-                                "part_number": p.pn.strip(),
+                                "part_number": pn_clean,
                                 "source_type": source_type,
                                 "where_found": "body",
                                 "evidence_snippet": p.snippet or p.context,
                                 "recommended_at": email.get('sent_at'),
                                 "attribution_status": "pending"
                             })
+                        else:
+                            print(f"⚠️ Skipping short PN: '{pn_clean}'")
 
                 add_parts(ai_data.part_numbers.customer_provided, "customer_provided")
                 add_parts(ai_data.part_numbers.recommended_by_you, "recommended")
