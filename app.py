@@ -69,21 +69,29 @@ if page == "📊 Dashboard":
     unprocessed_count = stats["total"] - stats["processed"]
 
     with col_btn:
-        button_label = "🤖 Run AI Enrichment (10)"
         if unprocessed_count > 0:
-            if st.button(button_label, type="primary"):
-                with st.spinner("Analyzing batch of 10..."):
-                    unprocessed = ai_engine.get_unprocessed_emails(limit=10)
-                    count, error = ai_engine.process_emails(unprocessed)
-                    if count > 0:
-                        st.success(f"Processed {count} emails!")
-                        st.info("💡 **Recommended Cool-down**: Please wait ~30 seconds before next batch.")
+            if st.button("🚀 Trigger Mega-Batch Enrichment (150 Items)"):
+                with st.status("Processing parallel batches...", expanded=True) as status:
+                    emails = ai_engine.get_unprocessed_emails(limit=150)
+                    if not emails:
+                        st.info("No new emails to process.")
+                        status.update(label="Complete", state="complete")
+                    else:
+                        st.write(f"Feeding {len(emails)} emails into 5 parallel streams...")
+                        bar = st.progress(0)
+                        
+                        # In parallel mode, we just wait for the engine to finish the total count
+                        count, error = ai_engine.process_emails(emails)
+                        
+                        bar.progress(100)
+                        if error:
+                            if "insufficient_quota" in error.lower():
+                                st.error("🚫 **OpenAI Quota Exhausted**: Please check your billing/balance at platform.openai.com.")
+                            else:
+                                st.error(f"❌ AI Error: {error}")
+                        st.success(f"Successfully processed {count} emails in parallel!")
+                        status.update(label=f"Done! {count} emails enriched.", state="complete")
                         st.rerun()
-                    elif error:
-                        if "insufficient_quota" in error.lower():
-                            st.error("🚫 **OpenAI Quota Exhausted**: Please check your billing/balance at platform.openai.com.")
-                        else:
-                            st.error(f"❌ AI Error: {error}")
         else:
             st.button("🤖 Enrichment Complete", disabled=True)
 

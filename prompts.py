@@ -38,3 +38,11 @@ SUBJECT: {subject}
 --- EMAIL BODY ---
 {body}
 """
+
+BATCH_USER_PROMPT_TEMPLATE = """
+I will provide a list of {count} emails. Analyze each item independently.
+Return a JSON Array where each object corresponds to an email in the original order.
+
+EMAILS:
+{emails_block}
+"""

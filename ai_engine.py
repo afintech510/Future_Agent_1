@@ -63,6 +63,9 @@ class EmailAnalysisSchema(StrictBaseModel):
     action_plan: ActionPlan
     commitment_analysis: CommitmentAnalysis # Added for Harvest mode
 
+class BatchEmailAnalysis(StrictBaseModel):
+    results: List[EmailAnalysisSchema] = Field(..., description="List of 30 analysis objects")
+
 # --- AI ENGINE ---
 
 class AIEngine:
@@ -84,53 +87,79 @@ class AIEngine:
         return response.data
 
     def process_emails(self, email_list):
-        """Process a list of emails through the AI and update the DB. Returns (count, last_error)."""
-        count = 0
+        """Process emails in parallel batches for maximum throughput."""
+        if not email_list:
+            return 0, None
+            
+        import concurrent.futures
+        batch_size = 30
+        max_workers = 5
+        
+        # 1. Chunking
+        chunks = [email_list[i:i + batch_size] for i in range(0, len(email_list), batch_size)]
+        
+        total_processed = 0
         last_error = None
-        for email in email_list:
-            try:
-                self._process_single_email(email)
-                count += 1
-            except Exception as e:
-                last_error = str(e)
-                print(f"Failed to process email {email['id']}: {e}")
-                if "insufficient_quota" in last_error.lower():
-                    break # Stop early if quota is gone
-        return count, last_error
-
-    def _process_single_email(self, email):
-        print(f"🤖 Analyzing: {email['subject']}")
         
-        # 1. FORMAT RECIPIENTS FOR AI CONTEXT
-        to_list = ", ".join(email.get('recipient_emails', []) or [])
-        cc_list = ", ".join(email.get('cc_emails', []) or [])
+        print(f"🚀 Starting parallel processing: {len(email_list)} emails in {len(chunks)} batches.")
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_chunk = {executor.submit(self._process_batch, chunk): chunk for chunk in chunks}
+            
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                try:
+                    processed_in_batch = future.result()
+                    total_processed += processed_in_batch
+                except Exception as e:
+                    last_error = str(e)
+                    print(f"❌ Batch failed: {e}")
+                    
+        return total_processed, last_error
 
-        user_prompt = USER_PROMPT_TEMPLATE.format(
-            subject=email['subject'],
-            sender_name=email.get('from_name', 'Unknown'),
-            sender_email=email.get('sender_email', 'unknown@domain.com'),
-            to_list=to_list,
-            cc_list=cc_list,
-            sent_at=email.get('sent_at', 'unknown'),
-            body=email['body'][:12000]
+    def _process_batch(self, emails):
+        """Process a single batch of 30 emails."""
+        from prompts import BATCH_USER_PROMPT_TEMPLATE
+        
+        # 1. Format Batch Prompt
+        emails_block = ""
+        for i, email in enumerate(emails):
+            emails_block += f"\n--- ITEM {i} ---\n"
+            emails_block += f"FROM: {email.get('from_name')} <{email.get('sender_email')}>\n"
+            emails_block += f"SUBJECT: {email['subject']}\n"
+            emails_block += f"BODY: {email['body'][:2000]}\n" # Truncate body for batch fits
+
+        batch_prompt = BATCH_USER_PROMPT_TEMPLATE.format(
+            count=len(emails),
+            emails_block=emails_block
         )
 
-        # Using Structured Outputs API (parse)
-        completion = self.openai.beta.chat.completions.parse(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format=EmailAnalysisSchema,
-        )
+        try:
+            completion = self.openai.beta.chat.completions.parse(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": batch_prompt}
+                ],
+                response_format=BatchEmailAnalysis,
+            )
+            
+            ai_batch = completion.choices[0].message.parsed.results
+            
+            # 2. Save Results (1:1 mapping)
+            for i, ai_data in enumerate(ai_batch):
+                if i < len(emails):
+                    self._save_single_result(emails[i], ai_data)
+            
+            return len(emails)
+        except Exception as e:
+            print(f"AI Batch Error: {e}")
+            raise e
 
-        ai_data = completion.choices[0].message.parsed
-        
-        # 1. Determine if Outgoing (Adam is Sender)
+    def _save_single_result(self, email, ai_data):
+        """Individual save logic (extracted from old _process_single_email)."""
         is_outgoing = "adam.larkin" in email.get('sender_email', '').lower()
         
-        # 1. Prepare Insights Data
+        # Prepare Insights
         specs_list = [f"- {s.label}: {s.value}" for s in ai_data.technical_analysis.specs_detected]
         tech_summary = f"Application: {ai_data.technical_analysis.application}\n" + "\n".join(specs_list)
         
@@ -145,28 +174,21 @@ class AIEngine:
             "technical_risks": ai_data.technical_analysis.risks,
             "suggested_actions": ai_data.action_plan.suggested_actions,
             "missing_info_questions": ai_data.action_plan.missing_info_questions,
-            "draft_reply": ai_data.draft_reply if not is_outgoing else "", # Clear draft if outgoing
+            "draft_reply": ai_data.draft_reply if not is_outgoing else "",
             "raw_ai_output": ai_data.model_dump(),
-            "model_metadata": {"model": "gpt-4o-mini", "version": "v2.4-harvest"}
+            "model_metadata": {"model": "gpt-4o-mini", "version": "v2.5-mega-batch"}
         }
         
-        # Upsert Insights
-        self.supabase.table("email_insights").upsert(
-            insights_data, on_conflict="email_id"
-        ).execute()
+        self.supabase.table("email_insights").upsert(insights_data, on_conflict="email_id").execute()
 
-        # 2. IF OUTGOING: Create Tasks from Commitments
+        # Tasks / Parts logic (Incoming vs Outgoing)
         if is_outgoing and ai_data.commitment_analysis.detected:
             from datetime import datetime, timedelta
             tasks_batch = []
-            
-            # Simple Entity Extraction: Get domain from CC or To
             domain = "Unknown"
             recipients = email.get('recipient_emails', []) or []
-            if recipients:
-                first_email = recipients[0]
-                if "@" in first_email:
-                    domain = first_email.split("@")[-1].split(".")[0].capitalize()
+            if recipients and "@" in recipients[0]:
+                domain = recipients[0].split("@")[-1].split(".")[0].capitalize()
 
             for comm in ai_data.commitment_analysis.commitments:
                 due_date = (datetime.now() + timedelta(days=comm.due_date_offset_days)).strftime("%Y-%m-%d")
@@ -181,9 +203,8 @@ class AIEngine:
             
             if tasks_batch:
                 self.supabase.table("tasks").insert(tasks_batch).execute()
-                print(f"📌 Created {len(tasks_batch)} tasks for outgoing email.")
 
-        # 3. Prepare Recommended Parts
+        # Recommended Parts
         parts_batch = []
         def add_parts(part_list, source_type):
             for p in part_list:
@@ -201,18 +222,12 @@ class AIEngine:
         add_parts(ai_data.part_numbers.recommended_by_you, "recommended")
 
         if parts_batch:
-            self.supabase.table("parts_recommended").upsert(
-                parts_batch, 
-                on_conflict="email_id, part_number, source_type",
-                ignore_duplicates=True
-            ).execute()
+            self.supabase.table("parts_recommended").upsert(parts_batch, on_conflict="email_id, part_number, source_type", ignore_duplicates=True).execute()
 
-        # 4. Mark as Processed
+        # Mark as Processed
         self.supabase.table("emails").update({"processed_by_ai": True}).eq("id", email['id']).execute()
-        
-        print(f"✅ Successfully processed {email['id']}")
 
 if __name__ == "__main__":
     engine = AIEngine()
-    processed_count = engine.process_emails(engine.get_unprocessed_emails(limit=1))
-    print(f"Cycle complete. Processed {processed_count} emails.")
+    processed_count, error = engine.process_emails(engine.get_unprocessed_emails(limit=30))
+    print(f"Cycle complete. Processed {processed_count} emails. Error: {error}")
