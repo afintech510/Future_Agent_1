@@ -51,7 +51,13 @@ def load_stats():
         return {"total": 0, "processed": 0, "urgent": 0, "parts": 0}
 
 # --- NAVIGATION ---
-page = st.sidebar.radio("Navigation", ["📊 Dashboard", "🎯 Action Center", "📥 Import PST", "⚡ Quick Add"])
+page = st.sidebar.radio("Navigate", [
+    "📊 Dashboard", 
+    "🎯 Action Center", 
+    "📝 Tasks & Follow-ups", # Added
+    "📥 Import PST",
+    "⚙️ Settings"
+])
 st.sidebar.divider()
 
 # --- DASHBOARD ---
@@ -164,6 +170,34 @@ elif page == "🎯 Action Center":
             st.error(f"Action Center Error: {e}")
     else:
         st.info("Select at least one priority to view actions.")
+
+elif page == "📝 Tasks & Follow-ups":
+    st.title("📝 Tasks & Follow-ups")
+    st.markdown("Automated commitments and follow-ups harvested from your sent emails.")
+    
+    try:
+        resp = supabase.table("tasks").select("*, email:emails(*)").order("due_date").execute()
+        
+        if not resp.data:
+            st.success("You're all caught up! No pending tasks.")
+        else:
+            for t in resp.data:
+                icon = "🕒" if t['status'] == 'pending' else "✅"
+                with st.container(border=True):
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"### {icon} {t['description']}")
+                        st.write(f"**Company:** {t['company_name']} | **Type:** `{t['task_type']}`")
+                        if t['email']:
+                            st.caption(f"Linked to: {t['email']['subject']}")
+                    with col2:
+                        st.write(f"**Due:** {t['due_date']}")
+                        if t['status'] == 'pending':
+                            if st.button("Mark Done", key=f"task_{t['id']}"):
+                                supabase.table("tasks").update({"status": "completed"}).eq("id", t['id']).execute()
+                                st.rerun()
+    except Exception as e:
+        st.error(f"Task Load Error: {e}")
 
 # --- IMPORT PST ---
 elif page == "📥 Import PST":
