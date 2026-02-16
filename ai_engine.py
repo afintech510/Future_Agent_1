@@ -51,6 +51,10 @@ class CommitmentAnalysis(StrictBaseModel):
     detected: bool
     commitments: List[Commitment]
 
+class ActionPlan(StrictBaseModel):
+    suggested_actions: List[str]
+    missing_info_questions: List[str]
+
 class EmailAnalysisSchema(StrictBaseModel):
     summary: str
     intent: str = Field(..., description="quote_request | technical_support | order_status | intro | spam | update")
